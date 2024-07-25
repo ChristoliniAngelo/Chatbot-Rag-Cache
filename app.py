@@ -24,20 +24,25 @@ CACHE_FILE = 'cache.json'
 def ensure_cache_file():
     if not os.path.exists(CACHE_FILE):
         with open(CACHE_FILE, 'w') as f:
-            json.dump({}, f)
+            json.dump([], f)
 
 def load_cache():
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+                else:
+                    logging.error("Cache file is not in the expected format (list).")
+                    return []
         except json.JSONDecodeError as e:
             logging.error(f"JSONDecodeError: {e} - The cache file might be empty or corrupted.")
-            return {}
+            return []
         except Exception as e:
             logging.error(f"An error occurred while loading the cache: {e}")
-            return {}
-    return {}
+            return []
+    return []
 
 def save_cache(cache):
     try:
@@ -99,14 +104,14 @@ def get_conversation_chain(vectorstore):
     You are Esti, a helpful assistant.
     Answer the question with Bahasa Indonesia.
     Use the following context to answer the question at the end.
-    If you don't know the answer, just say you don't know. Do not try to fabricate an answer.
+    If you don't know the answer, just say you don't know. DO NOT try to fabricate an answer.
     If the question is not related to the context, politely inform that you are designed to answer only questions related to the context.
 
     Context:
     {context}
 
     Question: {question}
-
+    
     Helpful answer in markdown.
     """
     PROMPT = PromptTemplate(
@@ -132,45 +137,63 @@ def normalize_question(question):
     question = re.sub(r'\s+', ' ', question).strip()
     return question
 
-def rephrase_question_and_get_response(question):
+def get_topic_and_get_response(question):
     cache = load_cache()
     
     normalized_question = normalize_question(question)
     # Check if the normalized question is already in the cache
-    if normalized_question in cache:
-        return cache[normalized_question]
+    for entry in cache:
+        if normalize_question(entry["Question"]) == normalized_question:
+            return entry["Answer"]
 
     # Rephrase the question using OpenAI
     openai.api_key = os.getenv("OPENAI_API_KEY")
-    rephrase_question_prompt = f"""
-    I need you to rephrase the following question to make it clearer and more precise.
-    The rephrased question should convey the same meaning but be structured differently. 
-    Make sure it is a standalone question that maintains the core intent of the original question.
+    
+    topic_prompt = f"""
+    Identify the Topic of a User Question
+    Given the following user question, identify the main topic or subject it addresses from the categories provided below.
 
-    Original Question: {question}
-    Rephrased Question:
+    User Question: {question}
+
+    Categories:
+    - General Information
+    - Student Rights and Responsibilities
+    - Disciplinary Rules
+    - Academic Regulations
+    - Attendance Rules
+    - Dress Code Rules
+    - School Environment Rules
+    - Technology Use Rules
+    - Reporting Procedures
+    - Extracurricular Activities
+    - Conclusion
+
+    Topic:
+    (one of the categories above)
     """
 
-    
     response = openai.ChatCompletion.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": rephrase_question_prompt}
+            {"role": "user", "content": topic_prompt},
         ],
         temperature=0.2
     )
     
-    rephrased_question = response.choices[0].message['content'].strip()
-    print(f"Rephrased question: {rephrased_question}")
-    rephrased_normalized_question = normalize_question(rephrased_question)
-
+    topic = response.choices[0].message['content'].strip()
+    print(f"Identified topic: {topic}")
+    
     # Get the response from the conversation chain
-    response = st.session_state.conversation({'question': rephrased_normalized_question})
+    response = st.session_state.conversation({'question': normalized_question})
     answer = response.get('answer', "No answer found.")
     
     # Update cache
-    cache[normalized_question] = answer
+    cache.append({
+        "Question": question,
+        "Answer": answer,
+        "Topic": topic
+    })
     save_cache(cache)
     
     return answer
@@ -180,14 +203,13 @@ def handle_userinput(user_question):
     start_time = time.time()
 
     # Rephrase the user question and get the response
-    response = rephrase_question_and_get_response(user_question)
+    response = get_topic_and_get_response(user_question)
 
     # Display the response
     st.markdown(bot_template.replace("{{MSG}}", response), unsafe_allow_html=True)
 
     end_time = time.time()
     logging.info(f"Handled user input in {end_time - start_time:.2f} seconds")
-
 
 def main():
     ensure_cache_file()
@@ -198,16 +220,19 @@ def main():
         st.session_state.conversation = None
 
     st.header("Chat with multiple PDFs :books:")
-    user_question = st.text_input("Ask a question about your documents:")
+    st.write("Ask your questions about the documents you upload below.")
+
+    user_question = st.text_input("Type your question here:")
     if user_question:
+        st.write("Processing your question...")
         handle_userinput(user_question)
 
     with st.sidebar:
-        st.subheader("Your documents")
-        pdf_docs = st.file_uploader("Upload your PDFs here and click on 'Process'", accept_multiple_files=True)
+        st.subheader("Upload Your Documents")
+        pdf_docs = st.file_uploader("Select your PDF files and click 'Process'", accept_multiple_files=True)
         if st.button("Process"):
             if pdf_docs:
-                with st.spinner("Processing"):
+                with st.spinner("Processing..."):
                     logging.info("Processing started")
                     overall_start_time = time.time()
 
@@ -228,6 +253,7 @@ def main():
 
                     overall_end_time = time.time()
                     logging.info(f"Processing completed in {overall_end_time - overall_start_time:.2f} seconds")
+                    st.success("Processing completed. You can now ask questions.")
             else:
                 st.warning("Please upload at least one PDF file.")
 
