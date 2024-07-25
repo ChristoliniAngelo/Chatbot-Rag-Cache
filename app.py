@@ -145,7 +145,7 @@ def get_topic_and_get_response(question):
     if cached_answer:
         return cached_answer
 
-    # Rephrase the question using OpenAI
+    # Identify the topic of the question
     openai.api_key = os.getenv("OPENAI_API_KEY")
     
     topic_prompt = f"""
@@ -205,6 +205,7 @@ def handle_userinput(user_question):
     normalized_question = normalize_question(user_question)
     cached_answer = next((entry["Answer"] for entry in load_cache() if normalize_question(entry["Question"]) == normalized_question), None)
     
+    # Get the response
     if cached_answer:
         response = cached_answer
     else:
