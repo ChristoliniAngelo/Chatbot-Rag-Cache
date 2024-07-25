@@ -92,9 +92,7 @@ def get_vectorstore(text_chunks):
 def get_conversation_chain(vectorstore):
     logging.info("Starting to create conversation chain")
     start_time = time.time()
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-    )
+    llm = ChatOpenAI(model="gpt-4o-mini")
     logging.info(f"Created LLM: {llm}")
 
     memory = ConversationBufferMemory(memory_key='chat_history', return_messages=True)
@@ -139,12 +137,13 @@ def normalize_question(question):
 
 def get_topic_and_get_response(question):
     cache = load_cache()
-    
     normalized_question = normalize_question(question)
+    
     # Check if the normalized question is already in the cache
-    for entry in cache:
-        if normalize_question(entry["Question"]) == normalized_question:
-            return entry["Answer"]
+    cached_answer = next((entry["Answer"] for entry in cache if normalize_question(entry["Question"]) == normalized_question), None)
+    
+    if cached_answer:
+        return cached_answer
 
     # Rephrase the question using OpenAI
     openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -182,11 +181,11 @@ def get_topic_and_get_response(question):
     )
     
     topic = response.choices[0].message['content'].strip()
-    print(f"Identified topic: {topic}")
+    logging.info(f"Identified topic: {topic}")
     
     # Get the response from the conversation chain
-    response = st.session_state.conversation({'question': normalized_question})
-    answer = response.get('answer', "No answer found.")
+    conversation_response = st.session_state.conversation({'question': normalized_question})
+    answer = conversation_response.get('answer', "No answer found.")
     
     # Update cache
     cache.append({
@@ -201,13 +200,19 @@ def get_topic_and_get_response(question):
 def handle_userinput(user_question):
     logging.info(f"Handling user input: {user_question}")
     start_time = time.time()
-
-    # Rephrase the user question and get the response
-    response = get_topic_and_get_response(user_question)
-
+    
+    # Load cache and normalize the question
+    normalized_question = normalize_question(user_question)
+    cached_answer = next((entry["Answer"] for entry in load_cache() if normalize_question(entry["Question"]) == normalized_question), None)
+    
+    if cached_answer:
+        response = cached_answer
+    else:
+        response = get_topic_and_get_response(user_question)
+    
     # Display the response
     st.markdown(bot_template.replace("{{MSG}}", response), unsafe_allow_html=True)
-
+    
     end_time = time.time()
     logging.info(f"Handled user input in {end_time - start_time:.2f} seconds")
 
@@ -224,7 +229,7 @@ def main():
 
     user_question = st.text_input("Type your question here:")
     if user_question:
-        st.write("Processing your question...")
+        st.markdown(user_template.replace("{{MSG}}", user_question), unsafe_allow_html=True)
         handle_userinput(user_question)
 
     with st.sidebar:

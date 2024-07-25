@@ -8,5 +8,10 @@
         "Question": "nama kepala sekolah",
         "Answer": "Nama kepala sekolah SMA Negeri 88 Jakarta adalah Casikin Icuk Yunadi, M.Pd.",
         "Topic": "Topic: General Information"
+    },
+    {
+        "Question": "siapakah kepala sekolah sman 88?",
+        "Answer": "Kepala SMA Negeri 88 Jakarta adalah Casikin Icuk Yunadi, M.Pd.",
+        "Topic": "Topic: General Information"
     }
 ]
